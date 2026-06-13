@@ -3,7 +3,7 @@
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import requests as _requests
 
@@ -47,6 +47,8 @@ def transcribe(
             speech_models=["universal-3-pro", "universal-2"],
             language_code=lang_code,
             speaker_labels=True,
+            punctuate=True,
+            format_text=True,
             **extra,
         )
         transcript = aai.Transcriber().transcribe(tmp_path, config=config)
@@ -56,22 +58,8 @@ def transcribe(
     if transcript.status == aai.TranscriptStatus.error:
         raise RuntimeError(f"AssemblyAI error: {transcript.error}")
 
-    segments = []
-    if transcript.utterances:
-        for utt in transcript.utterances:
-            segments.append({
-                "start": (utt.start or 0) / 1000.0,
-                "end": (utt.end or 0) / 1000.0,
-                "text": utt.text or "",
-                "speaker": f"Speaker {utt.speaker}",
-            })
-    else:
-        segments.append({
-            "start": 0.0,
-            "end": 0.0,
-            "text": transcript.text or "",
-            "speaker": "Speaker 1",
-        })
+    # Use paragraphs for single-speaker audio (no utterances), utterances otherwise.
+    segments = _segments_from_utterances(transcript) or _segments_from_paragraphs(transcript)
 
     full_text = transcript.text or ""
     summary = _generate_summary(full_text, api_key) if (generate_summary and full_text) else None
@@ -84,6 +72,50 @@ def transcribe(
         "full_text": full_text,
         "summary": summary,
     }
+
+
+def _segments_from_utterances(transcript) -> List[Dict]:
+    """Build segments from speaker-diarized utterances (multi-speaker path)."""
+    if not transcript.utterances:
+        return []
+    return [
+        {
+            "start": (utt.start or 0) / 1000.0,
+            "end": (utt.end or 0) / 1000.0,
+            "text": utt.text or "",
+            "speaker": f"Speaker {utt.speaker}",
+        }
+        for utt in transcript.utterances
+    ]
+
+
+def _segments_from_paragraphs(transcript) -> List[Dict]:
+    """Build segments from paragraphs (single-speaker / no diarization path)."""
+    try:
+        paragraphs = transcript.get_paragraphs()
+    except Exception:
+        paragraphs = []
+
+    if paragraphs:
+        return [
+            {
+                "start": (p.start or 0) / 1000.0,
+                "end": (p.end or 0) / 1000.0,
+                "text": p.text or "",
+                "speaker": "Speaker 1",
+            }
+            for p in paragraphs
+        ]
+
+    # Final fallback: single block with full text.
+    return [
+        {
+            "start": 0.0,
+            "end": 0.0,
+            "text": transcript.text or "",
+            "speaker": "Speaker 1",
+        }
+    ]
 
 
 def _generate_summary(text: str, api_key: str) -> str:
