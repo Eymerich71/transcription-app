@@ -1,10 +1,14 @@
 import io
+import os
 import time
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dotenv import load_dotenv
 import streamlit as st
+
+load_dotenv()  # reads transcription/.env if present
 
 st.set_page_config(
     page_title="Audio Transcription",
@@ -40,6 +44,13 @@ st.markdown(
     }
     .seg-text { margin-top: 0.2rem; line-height: 1.5; }
     .step-header { font-size: 1.25rem; font-weight: 600; margin: 1.5rem 0 0.75rem 0; }
+    .summary-box {
+        background: #eef4ff;
+        border-left: 3px solid #0066cc;
+        padding: 0.8rem 1rem;
+        border-radius: 0 4px 4px 0;
+        margin-bottom: 1rem;
+    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -68,8 +79,6 @@ MIME = {
 }
 
 
-# ── session state ─────────────────────────────────────────────────────────────
-
 def _init():
     for key, default in [
         ("transcriptions", []),
@@ -78,8 +87,6 @@ def _init():
         if key not in st.session_state:
             st.session_state[key] = default
 
-
-# ── helpers ───────────────────────────────────────────────────────────────────
 
 def _fmt_time(seconds: float) -> str:
     if seconds is None:
@@ -113,8 +120,6 @@ def _apply_map(transcriptions: List[Dict], speaker_map: Dict[str, str]) -> List[
     return out
 
 
-# ── transcription ─────────────────────────────────────────────────────────────
-
 def _transcribe(
     audio_bytes: bytes,
     filename: str,
@@ -122,16 +127,22 @@ def _transcribe(
     language: str,
     whisper_model: Optional[str],
     api_key: Optional[str],
+    speakers_expected: Optional[int],
+    generate_summary: bool,
+    smart_paragraphs: bool,
 ) -> Dict[str, Any]:
     if engine == "Whisper (Free, Local)":
         from transcribers.whisper_transcriber import transcribe
         return transcribe(audio_bytes, filename, language, whisper_model or "base")
     else:
         from transcribers.assemblyai_transcriber import transcribe
-        return transcribe(audio_bytes, filename, language, api_key or "")
+        return transcribe(
+            audio_bytes, filename, language, api_key or "",
+            speakers_expected=speakers_expected,
+            generate_summary=generate_summary,
+            smart_paragraphs=smart_paragraphs,
+        )
 
-
-# ── export ────────────────────────────────────────────────────────────────────
 
 def _export(transcription: Dict, speaker_map: Dict, fmt: str) -> bytes:
     from exporters.export_utils import export_txt, export_docx, export_pdf, export_md
@@ -151,9 +162,9 @@ def _build_zip(transcriptions: List[Dict], speaker_map: Dict, fmt: str) -> bytes
     return buf.read()
 
 
-# ── sidebar ───────────────────────────────────────────────────────────────────
-
 def render_sidebar():
+    env_key = os.environ.get("ASSEMBLYAI_API_KEY", "")
+
     with st.sidebar:
         st.header("⚙️ Settings")
 
@@ -162,7 +173,7 @@ def render_sidebar():
             ["Whisper (Free, Local)", "AssemblyAI (Commercial)"],
             help=(
                 "**Whisper** runs entirely on your machine — free, private, no API key needed. "
-                "**AssemblyAI** is a cloud service with higher accuracy and automatic speaker diarization."
+                "**AssemblyAI** uses the EU region (Universal-3 Pro model) with automatic speaker diarization."
             ),
         )
 
@@ -170,6 +181,9 @@ def render_sidebar():
 
         whisper_model = None
         api_key = None
+        speakers_expected = None
+        generate_summary = False
+        smart_paragraphs = False
 
         if engine == "Whisper (Free, Local)":
             st.markdown("---")
@@ -186,25 +200,53 @@ def render_sidebar():
             st.subheader("AssemblyAI")
             api_key = st.text_input(
                 "API Key",
+                value=env_key,
                 type="password",
                 placeholder="xxxxxxxxxxxxxxxxxxxxxxxx",
-                help="Get a free key at assemblyai.com",
+                help="Pre-filled from ASSEMBLYAI_API_KEY in your .env file. Get a key at assemblyai.com.",
             )
             if not api_key:
                 st.warning("Enter your AssemblyAI API key to continue.")
+            elif env_key and api_key == env_key:
+                st.caption("🔒 Key loaded from .env")
+
+            n = st.number_input(
+                "Expected number of speakers",
+                min_value=0,
+                max_value=20,
+                value=0,
+                step=1,
+                help="Set to 0 for automatic detection. Providing the correct count improves diarization accuracy.",
+            )
+            speakers_expected = int(n) if n > 0 else None
+
+            generate_summary = st.checkbox(
+                "Generate AI summary after transcription",
+                value=False,
+                help="Uses AssemblyAI LLM Gateway (EU) to produce a 3-5 bullet-point summary of each transcript.",
+            )
+
+            smart_paragraphs = st.checkbox(
+                "Smart paragraph grouping (AI)",
+                value=False,
+                help=(
+                    "Single-speaker only. Uses LLM Gateway to regroup sentences into "
+                    "semantic paragraphs instead of splitting on audio pauses. "
+                    "Words and timestamps are preserved. Adds one LLM call per file (billed as tokens)."
+                ),
+            )
 
         st.markdown("---")
         st.caption("**Supported:** mp3, wav, m4a, flac, ogg, mp4, webm")
 
-    return engine, language, whisper_model, api_key
+    return engine, language, whisper_model, api_key, speakers_expected, generate_summary, smart_paragraphs
 
-
-# ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
     _init()
 
-    engine, language, whisper_model, api_key = render_sidebar()
+    (engine, language, whisper_model, api_key,
+     speakers_expected, generate_summary, smart_paragraphs) = render_sidebar()
 
     st.markdown('<div class="main-title">🎙️ Audio Transcription</div>', unsafe_allow_html=True)
     st.markdown(
@@ -212,7 +254,7 @@ def main():
         unsafe_allow_html=True,
     )
 
-    # ── 1. Upload ─────────────────────────────────────────────────────────────
+    # ── 1. Upload
     st.markdown('<div class="step-header">1 · Upload Audio Files</div>', unsafe_allow_html=True)
     uploaded_files = st.file_uploader(
         "Upload",
@@ -225,7 +267,7 @@ def main():
         names = ", ".join(f.name for f in uploaded_files)
         st.caption(f"{len(uploaded_files)} file(s) ready: {names}")
 
-    # ── 2. Transcribe ─────────────────────────────────────────────────────────
+    # ── 2. Transcribe
     st.markdown('<div class="step-header">2 · Transcribe</div>', unsafe_allow_html=True)
 
     ready = bool(uploaded_files) and (
@@ -249,6 +291,9 @@ def main():
                     language=language,
                     whisper_model=whisper_model,
                     api_key=api_key,
+                    speakers_expected=speakers_expected,
+                    generate_summary=generate_summary,
+                    smart_paragraphs=smart_paragraphs,
                 )
             except Exception as exc:
                 result = {
@@ -257,6 +302,7 @@ def main():
                     "engine": engine,
                     "segments": [],
                     "full_text": "",
+                    "summary": None,
                     "error": str(exc),
                 }
             st.session_state.transcriptions.append(result)
@@ -273,7 +319,7 @@ def main():
     elif engine == "AssemblyAI (Commercial)" and not api_key:
         st.warning("Enter your AssemblyAI API key in the sidebar.")
 
-    # ── 3. Review ─────────────────────────────────────────────────────────────
+    # ── 3. Review
     if not st.session_state.transcriptions:
         return
 
@@ -291,6 +337,11 @@ def main():
             st.caption(
                 f"Engine: {t['engine']} · Language: {t['language']} · {len(t['segments'])} segment(s)"
             )
+            if t.get("summary"):
+                st.markdown(
+                    f'<div class="summary-box">✨ <strong>AI Summary</strong><br>{t["summary"]}</div>',
+                    unsafe_allow_html=True,
+                )
             for seg in t["segments"]:
                 ts = f"{_fmt_time(seg['start'])} → {_fmt_time(seg['end'])}"
                 st.markdown(
@@ -302,7 +353,7 @@ def main():
                     unsafe_allow_html=True,
                 )
 
-    # ── 4. Speaker names ──────────────────────────────────────────────────────
+    # ── 4. Speaker names
     st.markdown("---")
     st.markdown('<div class="step-header">4 · Tag Speaker Names</div>', unsafe_allow_html=True)
 
@@ -334,7 +385,7 @@ def main():
             st.session_state.speaker_map = new_map
             st.rerun()
 
-    # ── 5. Export ─────────────────────────────────────────────────────────────
+    # ── 5. Export
     st.markdown("---")
     st.markdown('<div class="step-header">5 · Export</div>', unsafe_allow_html=True)
 

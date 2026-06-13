@@ -11,14 +11,12 @@ LANG_CODES = {
     "Italian": "it",
 }
 
-# Module-level model cache so the model is loaded once per process.
 _model_cache: Dict[str, Any] = {}
 
 
 def _load_model(model_size: str):
     if model_size not in _model_cache:
-        import whisper  # imported lazily so startup is fast when using AssemblyAI
-
+        import whisper
         _model_cache[model_size] = whisper.load_model(model_size)
     return _model_cache[model_size]
 
@@ -29,10 +27,6 @@ def transcribe(
     language: str,
     model_size: str = "base",
 ) -> Dict[str, Any]:
-    """Transcribe audio bytes using a local Whisper model.
-
-    Returns a dict with keys: filename, language, engine, segments, full_text.
-    """
     model = _load_model(model_size)
     lang_code = LANG_CODES.get(language, "en")
     suffix = Path(filename).suffix or ".wav"
@@ -62,4 +56,5 @@ def transcribe(
         "engine": f"Whisper ({model_size})",
         "segments": segments,
         "full_text": result.get("text", "").strip(),
+        "summary": None,
     }

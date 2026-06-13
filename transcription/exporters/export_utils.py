@@ -24,8 +24,6 @@ def _meta(t: Dict) -> str:
     )
 
 
-# ── TXT ───────────────────────────────────────────────────────────────────────
-
 def export_txt(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> bytes:
     lines = [
         f"TRANSCRIPT: {transcription['filename']}",
@@ -40,8 +38,6 @@ def export_txt(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> by
         lines.append("")
     return "\n".join(lines).encode("utf-8")
 
-
-# ── Markdown ──────────────────────────────────────────────────────────────────
 
 def export_md(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> bytes:
     lines = [
@@ -62,8 +58,6 @@ def export_md(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> byt
         lines.append("")
     return "\n".join(lines).encode("utf-8")
 
-
-# ── DOCX ──────────────────────────────────────────────────────────────────────
 
 def export_docx(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> bytes:
     from docx import Document
@@ -101,8 +95,6 @@ def export_docx(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> b
     buf.seek(0)
     return buf.read()
 
-
-# ── PDF ───────────────────────────────────────────────────────────────────────
 
 def export_pdf(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> bytes:
     from reportlab.lib import colors
