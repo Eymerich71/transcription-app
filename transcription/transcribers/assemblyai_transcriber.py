@@ -58,8 +58,7 @@ def transcribe(
     if transcript.status == aai.TranscriptStatus.error:
         raise RuntimeError(f"AssemblyAI error: {transcript.error}")
 
-    # Use paragraphs for single-speaker audio (no utterances), utterances otherwise.
-    segments = _segments_from_utterances(transcript) or _segments_from_paragraphs(transcript)
+    segments = _build_segments(transcript)
 
     full_text = transcript.text or ""
     summary = _generate_summary(full_text, api_key) if (generate_summary and full_text) else None
@@ -74,10 +73,24 @@ def transcribe(
     }
 
 
-def _segments_from_utterances(transcript) -> List[Dict]:
+def _build_segments(transcript) -> List[Dict]:
+    """Pick the best segmentation.
+
+    With speaker_labels=True, AssemblyAI returns utterances even for a single
+    speaker. So we look at the number of *distinct* speakers: more than one
+    -> diarized utterance view; one (or none) -> paragraph view, which splits
+    the monologue into semantic blocks rather than a few long turns.
+    """
+    utterances = transcript.utterances or []
+    distinct_speakers = {u.speaker for u in utterances}
+
+    if len(distinct_speakers) > 1:
+        return _segments_from_utterances(utterances)
+    return _segments_from_paragraphs(transcript)
+
+
+def _segments_from_utterances(utterances) -> List[Dict]:
     """Build segments from speaker-diarized utterances (multi-speaker path)."""
-    if not transcript.utterances:
-        return []
     return [
         {
             "start": (utt.start or 0) / 1000.0,
@@ -85,7 +98,7 @@ def _segments_from_utterances(transcript) -> List[Dict]:
             "text": utt.text or "",
             "speaker": f"Speaker {utt.speaker}",
         }
-        for utt in transcript.utterances
+        for utt in utterances
     ]
 
 
@@ -147,5 +160,20 @@ def _generate_summary(text: str, api_key: str) -> str:
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
+    except _requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "?"
+        body = ""
+        try:
+            body = (exc.response.text or "")[:300]
+        except Exception:
+            pass
+        if status == 401:
+            return (
+                "Summary unavailable (HTTP 401). Your API key works for "
+                "transcription but not for LLM Gateway — it's a separate product. "
+                "Check that LLM Gateway is enabled and billing is set up in your "
+                "AssemblyAI dashboard. " + (f"Details: {body}" if body else "")
+            )
+        return f"Summary unavailable (HTTP {status}). {body}"
     except Exception as exc:
         return f"Summary unavailable: {exc}"
