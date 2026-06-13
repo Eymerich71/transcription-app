@@ -1,10 +1,14 @@
 import io
+import os
 import time
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dotenv import load_dotenv
 import streamlit as st
+
+load_dotenv()  # reads transcription/.env if present
 
 st.set_page_config(
     page_title="Audio Transcription",
@@ -159,6 +163,8 @@ def _build_zip(transcriptions: List[Dict], speaker_map: Dict, fmt: str) -> bytes
 
 
 def render_sidebar():
+    env_key = os.environ.get("ASSEMBLYAI_API_KEY", "")
+
     with st.sidebar:
         st.header("⚙️ Settings")
 
@@ -194,12 +200,15 @@ def render_sidebar():
             st.subheader("AssemblyAI")
             api_key = st.text_input(
                 "API Key",
+                value=env_key,
                 type="password",
                 placeholder="xxxxxxxxxxxxxxxxxxxxxxxx",
-                help="Get a free key at assemblyai.com. EU region is used for data residency.",
+                help="Pre-filled from ASSEMBLYAI_API_KEY in your .env file. Get a key at assemblyai.com.",
             )
             if not api_key:
                 st.warning("Enter your AssemblyAI API key to continue.")
+            elif env_key and api_key == env_key:
+                st.caption("🔒 Key loaded from .env")
 
             n = st.number_input(
                 "Expected number of speakers",
