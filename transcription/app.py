@@ -40,6 +40,13 @@ st.markdown(
     }
     .seg-text { margin-top: 0.2rem; line-height: 1.5; }
     .step-header { font-size: 1.25rem; font-weight: 600; margin: 1.5rem 0 0.75rem 0; }
+    .summary-box {
+        background: #eef4ff;
+        border-left: 3px solid #0066cc;
+        padding: 0.8rem 1rem;
+        border-radius: 0 4px 4px 0;
+        margin-bottom: 1rem;
+    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -116,13 +123,19 @@ def _transcribe(
     language: str,
     whisper_model: Optional[str],
     api_key: Optional[str],
+    speakers_expected: Optional[int],
+    generate_summary: bool,
 ) -> Dict[str, Any]:
     if engine == "Whisper (Free, Local)":
         from transcribers.whisper_transcriber import transcribe
         return transcribe(audio_bytes, filename, language, whisper_model or "base")
     else:
         from transcribers.assemblyai_transcriber import transcribe
-        return transcribe(audio_bytes, filename, language, api_key or "")
+        return transcribe(
+            audio_bytes, filename, language, api_key or "",
+            speakers_expected=speakers_expected,
+            generate_summary=generate_summary,
+        )
 
 
 def _export(transcription: Dict, speaker_map: Dict, fmt: str) -> bytes:
@@ -152,7 +165,7 @@ def render_sidebar():
             ["Whisper (Free, Local)", "AssemblyAI (Commercial)"],
             help=(
                 "**Whisper** runs entirely on your machine — free, private, no API key needed. "
-                "**AssemblyAI** is a cloud service with higher accuracy and automatic speaker diarization."
+                "**AssemblyAI** uses the EU region (Universal-3 Pro model) with automatic speaker diarization."
             ),
         )
 
@@ -160,6 +173,8 @@ def render_sidebar():
 
         whisper_model = None
         api_key = None
+        speakers_expected = None
+        generate_summary = False
 
         if engine == "Whisper (Free, Local)":
             st.markdown("---")
@@ -178,21 +193,37 @@ def render_sidebar():
                 "API Key",
                 type="password",
                 placeholder="xxxxxxxxxxxxxxxxxxxxxxxx",
-                help="Get a free key at assemblyai.com",
+                help="Get a free key at assemblyai.com. EU region is used for data residency.",
             )
             if not api_key:
                 st.warning("Enter your AssemblyAI API key to continue.")
 
+            n = st.number_input(
+                "Expected number of speakers",
+                min_value=0,
+                max_value=20,
+                value=0,
+                step=1,
+                help="Set to 0 for automatic detection. Providing the correct count improves diarization accuracy.",
+            )
+            speakers_expected = int(n) if n > 0 else None
+
+            generate_summary = st.checkbox(
+                "Generate AI summary after transcription",
+                value=False,
+                help="Uses AssemblyAI LLM Gateway (EU) to produce a 3-5 bullet-point summary of each transcript.",
+            )
+
         st.markdown("---")
         st.caption("**Supported:** mp3, wav, m4a, flac, ogg, mp4, webm")
 
-    return engine, language, whisper_model, api_key
+    return engine, language, whisper_model, api_key, speakers_expected, generate_summary
 
 
 def main():
     _init()
 
-    engine, language, whisper_model, api_key = render_sidebar()
+    engine, language, whisper_model, api_key, speakers_expected, generate_summary = render_sidebar()
 
     st.markdown('<div class="main-title">🎙️ Audio Transcription</div>', unsafe_allow_html=True)
     st.markdown(
@@ -200,6 +231,7 @@ def main():
         unsafe_allow_html=True,
     )
 
+    # ── 1. Upload
     st.markdown('<div class="step-header">1 · Upload Audio Files</div>', unsafe_allow_html=True)
     uploaded_files = st.file_uploader(
         "Upload",
@@ -212,6 +244,7 @@ def main():
         names = ", ".join(f.name for f in uploaded_files)
         st.caption(f"{len(uploaded_files)} file(s) ready: {names}")
 
+    # ── 2. Transcribe
     st.markdown('<div class="step-header">2 · Transcribe</div>', unsafe_allow_html=True)
 
     ready = bool(uploaded_files) and (
@@ -235,6 +268,8 @@ def main():
                     language=language,
                     whisper_model=whisper_model,
                     api_key=api_key,
+                    speakers_expected=speakers_expected,
+                    generate_summary=generate_summary,
                 )
             except Exception as exc:
                 result = {
@@ -243,6 +278,7 @@ def main():
                     "engine": engine,
                     "segments": [],
                     "full_text": "",
+                    "summary": None,
                     "error": str(exc),
                 }
             st.session_state.transcriptions.append(result)
@@ -259,6 +295,7 @@ def main():
     elif engine == "AssemblyAI (Commercial)" and not api_key:
         st.warning("Enter your AssemblyAI API key in the sidebar.")
 
+    # ── 3. Review
     if not st.session_state.transcriptions:
         return
 
@@ -276,6 +313,11 @@ def main():
             st.caption(
                 f"Engine: {t['engine']} · Language: {t['language']} · {len(t['segments'])} segment(s)"
             )
+            if t.get("summary"):
+                st.markdown(
+                    f'<div class="summary-box">✨ <strong>AI Summary</strong><br>{t["summary"]}</div>',
+                    unsafe_allow_html=True,
+                )
             for seg in t["segments"]:
                 ts = f"{_fmt_time(seg['start'])} → {_fmt_time(seg['end'])}"
                 st.markdown(
@@ -287,6 +329,7 @@ def main():
                     unsafe_allow_html=True,
                 )
 
+    # ── 4. Speaker names
     st.markdown("---")
     st.markdown('<div class="step-header">4 · Tag Speaker Names</div>', unsafe_allow_html=True)
 
@@ -318,6 +361,7 @@ def main():
             st.session_state.speaker_map = new_map
             st.rerun()
 
+    # ── 5. Export
     st.markdown("---")
     st.markdown('<div class="step-header">5 · Export</div>', unsafe_allow_html=True)
 

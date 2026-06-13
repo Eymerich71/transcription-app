@@ -56,4 +56,5 @@ def transcribe(
         "engine": f"Whisper ({model_size})",
         "segments": segments,
         "full_text": result.get("text", "").strip(),
+        "summary": None,
     }
