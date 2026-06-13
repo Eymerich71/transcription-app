@@ -125,6 +125,7 @@ def _transcribe(
     api_key: Optional[str],
     speakers_expected: Optional[int],
     generate_summary: bool,
+    smart_paragraphs: bool,
 ) -> Dict[str, Any]:
     if engine == "Whisper (Free, Local)":
         from transcribers.whisper_transcriber import transcribe
@@ -135,6 +136,7 @@ def _transcribe(
             audio_bytes, filename, language, api_key or "",
             speakers_expected=speakers_expected,
             generate_summary=generate_summary,
+            smart_paragraphs=smart_paragraphs,
         )
 
 
@@ -175,6 +177,7 @@ def render_sidebar():
         api_key = None
         speakers_expected = None
         generate_summary = False
+        smart_paragraphs = False
 
         if engine == "Whisper (Free, Local)":
             st.markdown("---")
@@ -214,16 +217,27 @@ def render_sidebar():
                 help="Uses AssemblyAI LLM Gateway (EU) to produce a 3-5 bullet-point summary of each transcript.",
             )
 
+            smart_paragraphs = st.checkbox(
+                "Smart paragraph grouping (AI)",
+                value=False,
+                help=(
+                    "Single-speaker only. Uses LLM Gateway to regroup sentences into "
+                    "semantic paragraphs instead of splitting on audio pauses. "
+                    "Words and timestamps are preserved. Adds one LLM call per file (billed as tokens)."
+                ),
+            )
+
         st.markdown("---")
         st.caption("**Supported:** mp3, wav, m4a, flac, ogg, mp4, webm")
 
-    return engine, language, whisper_model, api_key, speakers_expected, generate_summary
+    return engine, language, whisper_model, api_key, speakers_expected, generate_summary, smart_paragraphs
 
 
 def main():
     _init()
 
-    engine, language, whisper_model, api_key, speakers_expected, generate_summary = render_sidebar()
+    (engine, language, whisper_model, api_key,
+     speakers_expected, generate_summary, smart_paragraphs) = render_sidebar()
 
     st.markdown('<div class="main-title">🎙️ Audio Transcription</div>', unsafe_allow_html=True)
     st.markdown(
@@ -270,6 +284,7 @@ def main():
                     api_key=api_key,
                     speakers_expected=speakers_expected,
                     generate_summary=generate_summary,
+                    smart_paragraphs=smart_paragraphs,
                 )
             except Exception as exc:
                 result = {
