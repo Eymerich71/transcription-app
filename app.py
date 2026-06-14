@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 import streamlit as st
 
-load_dotenv()  # reads transcription/.env if present
+load_dotenv()  # reads .env if present
 
 st.set_page_config(
     page_title="Audio Transcription",

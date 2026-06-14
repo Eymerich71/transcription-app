@@ -22,7 +22,7 @@ A [Streamlit](https://streamlit.io/) web app for transcribing audio files, taggi
 ## Project structure
 
 ```
-transcription/
+.
 ├── app.py                          # Streamlit UI (upload → transcribe → review → tag → export)
 ├── requirements.txt
 ├── .env.example
@@ -38,7 +38,6 @@ transcription/
 ### 1. Install dependencies
 
 ```bash
-cd transcription
 pip install -r requirements.txt
 ```
 
