@@ -449,7 +449,7 @@ def main():
             try:
                 data = _export(t, st.session_state.speaker_map, fmt)
                 st.download_button(
-                    label=f"⬇️ {t['filename']}",
+                    label=f"⬇️ Download {t['filename']}",
                     data=data,
                     file_name=f"{stem}.{fmt}",
                     mime=MIME[fmt],
@@ -462,7 +462,7 @@ def main():
                 try:
                     sdata = _export_summary(t, fmt)
                     st.download_button(
-                        label="✨ Summary",
+                        label="⬇️ Download Summary",
                         data=sdata,
                         file_name=f"{stem}_summary.{fmt}",
                         mime=MIME[fmt],
