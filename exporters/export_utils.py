@@ -1,8 +1,9 @@
 """Export transcription results to TXT, DOCX, PDF, Markdown, and SRT."""
 
 import io
+import textwrap
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 
 def _fmt_time(seconds: float) -> str:
@@ -27,6 +28,21 @@ def _fmt_srt_time(seconds: float) -> str:
 
 def _speaker(seg: Dict, speaker_map: Dict[str, str]) -> str:
     return speaker_map.get(seg["speaker"], seg["speaker"])
+
+
+# Subtitle layout limits (broadcast convention: ~42 chars/line, 2 lines/cue).
+SRT_MAX_LINE = 42
+SRT_MAX_LINES = 2
+
+
+def _split_into_cues(text: str) -> List[str]:
+    """Wrap text to SRT_MAX_LINE and group lines into cues of at most
+    SRT_MAX_LINES lines each, so no cue overflows the screen."""
+    lines = textwrap.wrap(text, SRT_MAX_LINE) or [text]
+    cues = []
+    for i in range(0, len(lines), SRT_MAX_LINES):
+        cues.append("\n".join(lines[i : i + SRT_MAX_LINES]))
+    return cues
 
 
 def _meta(t: Dict) -> str:
@@ -74,8 +90,10 @@ def export_md(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> byt
 def export_srt(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> bytes:
     """Export as SubRip (.srt) subtitles.
 
-    Each segment becomes a numbered cue with HH:MM:SS,mmm timestamps. Cues
-    contain only the spoken text — no speaker labels — for clean subtitles.
+    Cues contain only the spoken text — no speaker labels — for clean
+    subtitles. Long segments are split into shorter cues (max two lines of
+    ~42 characters) so they fit on screen, with the segment's time divided
+    across the resulting cues in proportion to their text length.
     """
     blocks = []
     index = 1
@@ -83,10 +101,24 @@ def export_srt(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> by
         text = (seg.get("text") or "").strip()
         if not text:
             continue
-        start = _fmt_srt_time(seg.get("start"))
-        end = _fmt_srt_time(seg.get("end"))
-        blocks.append(f"{index}\n{start} --> {end}\n{text}\n")
-        index += 1
+        seg_start = seg.get("start") or 0.0
+        seg_end = seg.get("end")
+        if seg_end is None or seg_end < seg_start:
+            seg_end = seg_start
+        cues = _split_into_cues(text)
+        total = sum(len(c) for c in cues) or 1
+        cursor = seg_start
+        for i, cue in enumerate(cues):
+            # Give the last cue the exact segment end to avoid rounding drift.
+            if i == len(cues) - 1:
+                cue_end = seg_end
+            else:
+                cue_end = cursor + (seg_end - seg_start) * (len(cue) / total)
+            blocks.append(
+                f"{index}\n{_fmt_srt_time(cursor)} --> {_fmt_srt_time(cue_end)}\n{cue}\n"
+            )
+            cursor = cue_end
+            index += 1
     # Cues are separated by a blank line, per the SRT convention.
     return "\n".join(blocks).encode("utf-8")
 
