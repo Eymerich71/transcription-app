@@ -12,7 +12,7 @@ A [Streamlit](https://streamlit.io/) web app for transcribing audio files, taggi
 - **Speaker tagging** — map detected speaker IDs to real names and apply across all transcripts.
 - **AI summaries** (AssemblyAI) — optional 3–5 bullet-point summary per transcript via the LLM Gateway.
 - **Smart paragraph grouping** (AssemblyAI, single-speaker) — uses an LLM to regroup sentences into semantic paragraphs while preserving exact words and timestamps.
-- **Export** — download as Plain Text (`.txt`), Word (`.docx`), PDF (`.pdf`), or Markdown (`.md`), individually or all at once as a ZIP. AI summaries can be downloaded as separate files, and a one-click "Download Everything" archive bundles every format plus summaries.
+- **Export** — download as Plain Text (`.txt`), Word (`.docx`), PDF (`.pdf`), Markdown (`.md`), or SubRip subtitles (`.srt`), individually or all at once as a ZIP. AI summaries can be downloaded as separate files, and a one-click "Download Everything" archive bundles every format plus summaries.
 - **Languages** — English, Spanish, Italian.
 
 **Supported formats:**
@@ -30,7 +30,7 @@ transcription/
 │   ├── whisper_transcriber.py      # Local Whisper backend
 │   └── assemblyai_transcriber.py   # AssemblyAI backend (diarization, summary, smart paragraphs)
 └── exporters/
-    └── export_utils.py             # txt / docx / pdf / md exporters
+    └── export_utils.py             # txt / docx / pdf / md / srt exporters
 ```
 
 ## Getting started

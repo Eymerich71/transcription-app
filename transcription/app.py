@@ -70,13 +70,18 @@ FORMATS = {
     "docx": "Word (.docx)",
     "pdf": "PDF (.pdf)",
     "md": "Markdown (.md)",
+    "srt": "Subtitles (.srt)",
 }
 MIME = {
     "txt": "text/plain",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "pdf": "application/pdf",
     "md": "text/markdown",
+    "srt": "application/x-subrip",
 }
+# Formats that support a standalone summary export. SRT is a subtitle format
+# with no notion of a summary cue, so it is excluded.
+SUMMARY_FORMATS = {"txt", "docx", "pdf", "md"}
 # Accepted upload types. Video containers are supported too — both Whisper
 # (via ffmpeg) and AssemblyAI extract the audio track automatically.
 UPLOAD_TYPES = [
@@ -151,8 +156,16 @@ def _transcribe(
 
 
 def _export(transcription: Dict, speaker_map: Dict, fmt: str) -> bytes:
-    from exporters.export_utils import export_txt, export_docx, export_pdf, export_md
-    fn = {"txt": export_txt, "docx": export_docx, "pdf": export_pdf, "md": export_md}[fmt]
+    from exporters.export_utils import (
+        export_txt, export_docx, export_pdf, export_md, export_srt,
+    )
+    fn = {
+        "txt": export_txt,
+        "docx": export_docx,
+        "pdf": export_pdf,
+        "md": export_md,
+        "srt": export_srt,
+    }[fmt]
     return fn(transcription, speaker_map)
 
 
@@ -192,7 +205,7 @@ def _build_full_zip(transcriptions: List[Dict], speaker_map: Dict) -> bytes:
             stem = Path(t["filename"]).stem
             for fmt in FORMATS:
                 zf.writestr(f"{stem}/{stem}.{fmt}", _export(t, speaker_map, fmt))
-                if t.get("summary"):
+                if t.get("summary") and fmt in SUMMARY_FORMATS:
                     zf.writestr(f"{stem}/{stem}_summary.{fmt}", _export_summary(t, fmt))
     buf.seek(0)
     return buf.read()
@@ -458,7 +471,7 @@ def main():
             except Exception as exc:
                 st.error(f"{t['filename']}: {exc}")
 
-            if t.get("summary"):
+            if t.get("summary") and fmt in SUMMARY_FORMATS:
                 try:
                     sdata = _export_summary(t, fmt)
                     st.download_button(
@@ -486,7 +499,7 @@ def main():
             st.error(f"ZIP error: {exc}")
 
     st.markdown(" ")
-    st.caption("Get everything in one archive — all formats (txt, docx, pdf, md) plus summaries where available.")
+    st.caption("Get everything in one archive — all formats (txt, docx, pdf, md, srt) plus summaries where available.")
     try:
         full_zip = _build_full_zip(valid, st.session_state.speaker_map)
         st.download_button(

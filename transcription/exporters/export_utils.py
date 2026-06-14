@@ -1,4 +1,4 @@
-"""Export transcription results to TXT, DOCX, PDF, and Markdown."""
+"""Export transcription results to TXT, DOCX, PDF, Markdown, and SRT."""
 
 import io
 from datetime import datetime
@@ -11,6 +11,18 @@ def _fmt_time(seconds: float) -> str:
     h, rem = divmod(int(seconds), 3600)
     m, s = divmod(rem, 60)
     return f"{h}:{m:02d}:{s:02d}"
+
+
+def _fmt_srt_time(seconds: float) -> str:
+    """Format a time in seconds as an SRT timestamp: HH:MM:SS,mmm."""
+    if seconds is None or seconds < 0:
+        seconds = 0.0
+    total_ms = int(round(seconds * 1000))
+    ms = total_ms % 1000
+    total_s = total_ms // 1000
+    h, rem = divmod(total_s, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
 def _speaker(seg: Dict, speaker_map: Dict[str, str]) -> str:
@@ -57,6 +69,28 @@ def export_md(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> byt
         lines.append("---")
         lines.append("")
     return "\n".join(lines).encode("utf-8")
+
+
+def export_srt(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> bytes:
+    """Export as SubRip (.srt) subtitles.
+
+    Each segment becomes a numbered cue with HH:MM:SS,mmm timestamps. The
+    speaker name is prefixed to the cue text when one is present.
+    """
+    blocks = []
+    index = 1
+    for seg in transcription.get("segments", []):
+        text = (seg.get("text") or "").strip()
+        if not text:
+            continue
+        start = _fmt_srt_time(seg.get("start"))
+        end = _fmt_srt_time(seg.get("end"))
+        speaker = _speaker(seg, speaker_map)
+        body = f"[{speaker}] {text}" if speaker else text
+        blocks.append(f"{index}\n{start} --> {end}\n{body}\n")
+        index += 1
+    # Cues are separated by a blank line, per the SRT convention.
+    return "\n".join(blocks).encode("utf-8")
 
 
 def export_docx(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> bytes:
