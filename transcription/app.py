@@ -77,6 +77,12 @@ MIME = {
     "pdf": "application/pdf",
     "md": "text/markdown",
 }
+# Accepted upload types. Video containers are supported too — both Whisper
+# (via ffmpeg) and AssemblyAI extract the audio track automatically.
+UPLOAD_TYPES = [
+    "mp3", "wav", "m4a", "flac", "ogg", "aac",
+    "mp4", "webm", "mov", "mkv", "avi", "wmv", "m4v", "mpeg", "mpg",
+]
 
 
 def _init():
@@ -150,6 +156,19 @@ def _export(transcription: Dict, speaker_map: Dict, fmt: str) -> bytes:
     return fn(transcription, speaker_map)
 
 
+def _export_summary(transcription: Dict, fmt: str) -> bytes:
+    from exporters.export_utils import (
+        export_summary_txt, export_summary_docx, export_summary_pdf, export_summary_md,
+    )
+    fn = {
+        "txt": export_summary_txt,
+        "docx": export_summary_docx,
+        "pdf": export_summary_pdf,
+        "md": export_summary_md,
+    }[fmt]
+    return fn(transcription)
+
+
 def _build_zip(transcriptions: List[Dict], speaker_map: Dict, fmt: str) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -158,6 +177,23 @@ def _build_zip(transcriptions: List[Dict], speaker_map: Dict, fmt: str) -> bytes
                 continue
             data = _export(t, speaker_map, fmt)
             zf.writestr(f"{Path(t['filename']).stem}.{fmt}", data)
+    buf.seek(0)
+    return buf.read()
+
+
+def _build_full_zip(transcriptions: List[Dict], speaker_map: Dict) -> bytes:
+    """ZIP with every format for every file, plus a summary file per format
+    when a summary is available."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for t in transcriptions:
+            if t.get("error"):
+                continue
+            stem = Path(t["filename"]).stem
+            for fmt in FORMATS:
+                zf.writestr(f"{stem}/{stem}.{fmt}", _export(t, speaker_map, fmt))
+                if t.get("summary"):
+                    zf.writestr(f"{stem}/{stem}_summary.{fmt}", _export_summary(t, fmt))
     buf.seek(0)
     return buf.read()
 
@@ -237,7 +273,11 @@ def render_sidebar():
             )
 
         st.markdown("---")
-        st.caption("**Supported:** mp3, wav, m4a, flac, ogg, mp4, webm")
+        st.caption(
+            "**Supported:** audio (mp3, wav, m4a, flac, ogg, aac) and "
+            "video (mp4, webm, mov, mkv, avi, wmv, m4v, mpeg). "
+            "For video, the audio track is transcribed."
+        )
 
     return engine, language, whisper_model, api_key, speakers_expected, generate_summary, smart_paragraphs
 
@@ -258,7 +298,7 @@ def main():
     st.markdown('<div class="step-header">1 · Upload Audio Files</div>', unsafe_allow_html=True)
     uploaded_files = st.file_uploader(
         "Upload",
-        type=["mp3", "wav", "m4a", "flac", "ogg", "mp4", "webm"],
+        type=UPLOAD_TYPES,
         accept_multiple_files=True,
         label_visibility="collapsed",
     )
@@ -405,9 +445,9 @@ def main():
     cols = st.columns(min(len(valid), 4))
     for i, t in enumerate(valid):
         with cols[i % min(len(valid), 4)]:
+            stem = Path(t["filename"]).stem
             try:
                 data = _export(t, st.session_state.speaker_map, fmt)
-                stem = Path(t["filename"]).stem
                 st.download_button(
                     label=f"⬇️ {t['filename']}",
                     data=data,
@@ -417,6 +457,19 @@ def main():
                 )
             except Exception as exc:
                 st.error(f"{t['filename']}: {exc}")
+
+            if t.get("summary"):
+                try:
+                    sdata = _export_summary(t, fmt)
+                    st.download_button(
+                        label="✨ Summary",
+                        data=sdata,
+                        file_name=f"{stem}_summary.{fmt}",
+                        mime=MIME[fmt],
+                        key=f"dlsum_{i}_{fmt}",
+                    )
+                except Exception as exc:
+                    st.error(f"{t['filename']} summary: {exc}")
 
     if len(valid) > 1:
         st.markdown(" ")
@@ -431,6 +484,21 @@ def main():
             )
         except Exception as exc:
             st.error(f"ZIP error: {exc}")
+
+    st.markdown(" ")
+    st.caption("Get everything in one archive — all formats (txt, docx, pdf, md) plus summaries where available.")
+    try:
+        full_zip = _build_full_zip(valid, st.session_state.speaker_map)
+        st.download_button(
+            label="📦 Download Everything (all formats + summaries)",
+            data=full_zip,
+            file_name="transcriptions_all_formats.zip",
+            mime="application/zip",
+            type="primary",
+            key="dl_full_zip",
+        )
+    except Exception as exc:
+        st.error(f"Full ZIP error: {exc}")
 
 
 if __name__ == "__main__":

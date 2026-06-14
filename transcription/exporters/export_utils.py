@@ -171,3 +171,109 @@ def export_pdf(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> by
     doc.build(story)
     buf.seek(0)
     return buf.read()
+
+
+# ── Summary exporters ──────────────────────────────────────────────────────
+
+def export_summary_txt(transcription: Dict[str, Any]) -> bytes:
+    summary = transcription.get("summary") or ""
+    lines = [
+        f"SUMMARY: {transcription['filename']}",
+        _meta(transcription),
+        "=" * 72,
+        "",
+        summary,
+        "",
+    ]
+    return "\n".join(lines).encode("utf-8")
+
+
+def export_summary_md(transcription: Dict[str, Any]) -> bytes:
+    summary = transcription.get("summary") or ""
+    lines = [
+        f"# Summary: {transcription['filename']}",
+        "",
+        _meta(transcription),
+        "",
+        "---",
+        "",
+        summary,
+        "",
+    ]
+    return "\n".join(lines).encode("utf-8")
+
+
+def export_summary_docx(transcription: Dict[str, Any]) -> bytes:
+    from docx import Document
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    summary = transcription.get("summary") or ""
+
+    doc = Document()
+    title = doc.add_heading(f"Summary: {transcription['filename']}", level=0)
+    title.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    meta_para = doc.add_paragraph()
+    run = meta_para.add_run(_meta(transcription))
+    run.font.size = Pt(9)
+    run.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
+
+    doc.add_paragraph()
+
+    for line in summary.split("\n"):
+        doc.add_paragraph(line)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+def export_summary_pdf(transcription: Dict[str, Any]) -> bytes:
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_LEFT
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer
+
+    summary = transcription.get("summary") or ""
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=2 * cm,
+        rightMargin=2 * cm,
+        topMargin=2 * cm,
+        bottomMargin=2 * cm,
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "SumTitle", parent=styles["Heading1"], fontSize=15, spaceAfter=4, alignment=TA_LEFT
+    )
+    meta_style = ParagraphStyle(
+        "SumMeta", parent=styles["Normal"], fontSize=8, textColor=colors.gray, spaceAfter=10
+    )
+    text_style = ParagraphStyle(
+        "SumText", parent=styles["Normal"], fontSize=10, leading=14, spaceAfter=4
+    )
+
+    def _safe(s: str) -> str:
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    story = [
+        Paragraph(_safe(f"Summary: {transcription['filename']}"), title_style),
+        Paragraph(_safe(_meta(transcription)), meta_style),
+        HRFlowable(width="100%", thickness=0.5, color=colors.lightgrey),
+        Spacer(1, 10),
+    ]
+    for line in summary.split("\n"):
+        if line.strip():
+            story.append(Paragraph(_safe(line), text_style))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf.read()
