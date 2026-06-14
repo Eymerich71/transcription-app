@@ -74,8 +74,8 @@ def export_md(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> byt
 def export_srt(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> bytes:
     """Export as SubRip (.srt) subtitles.
 
-    Each segment becomes a numbered cue with HH:MM:SS,mmm timestamps. The
-    speaker name is prefixed to the cue text when one is present.
+    Each segment becomes a numbered cue with HH:MM:SS,mmm timestamps. Cues
+    contain only the spoken text — no speaker labels — for clean subtitles.
     """
     blocks = []
     index = 1
@@ -85,9 +85,7 @@ def export_srt(transcription: Dict[str, Any], speaker_map: Dict[str, str]) -> by
             continue
         start = _fmt_srt_time(seg.get("start"))
         end = _fmt_srt_time(seg.get("end"))
-        speaker = _speaker(seg, speaker_map)
-        body = f"[{speaker}] {text}" if speaker else text
-        blocks.append(f"{index}\n{start} --> {end}\n{body}\n")
+        blocks.append(f"{index}\n{start} --> {end}\n{text}\n")
         index += 1
     # Cues are separated by a blank line, per the SRT convention.
     return "\n".join(blocks).encode("utf-8")
