@@ -250,14 +250,15 @@ def _generate_summary(text: str, api_key: str) -> str:
                         "role": "system",
                         "content": (
                             "You are a research assistant. "
-                            "Produce a concise summary of the following transcript "
-                            "in 3-5 bullet points. Capture main topics, key insights, "
-                            "and any decisions or action items mentioned."
+                            "Produce a clear, well-structured summary of the following "
+                            "transcript as 3 to 5 paragraphs of flowing prose (not bullet "
+                            "points). Separate paragraphs with a blank line. Cover the main "
+                            "topics, key insights, and any decisions or action items mentioned."
                         ),
                     },
                     {"role": "user", "content": text},
                 ],
-                "max_tokens": 600,
+                "max_tokens": 900,
             },
             timeout=60,
         )

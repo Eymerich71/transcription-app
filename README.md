@@ -8,9 +8,9 @@ A [Streamlit](https://streamlit.io/) web app for transcribing audio files, taggi
   - **Whisper (free, local)** — runs entirely on your machine, no API key, fully private. Model sizes from `tiny` to `large`.
   - **AssemblyAI (commercial)** — EU region, Universal-3.5 Pro model, automatic speaker diarization.
 - **Multi-file upload** — transcribe a whole batch in one run.
-- **Speaker diarization** (AssemblyAI) — automatically detects who spoke when; optionally provide the expected speaker count to improve accuracy.
-- **Speaker tagging** — map detected speaker IDs to real names and apply across all transcripts.
-- **AI summaries** (AssemblyAI) — optional 3–5 bullet-point summary per transcript via the LLM Gateway.
+- **Speaker diarization** (AssemblyAI) — automatically detects who spoke when; set the expected speaker count **per file** to improve accuracy (each track can differ).
+- **Speaker tagging** — rename speakers **per file**, so labels never bleed across tracks.
+- **AI summaries** (AssemblyAI) — optional 3–5 paragraph summary per transcript via the LLM Gateway.
 - **Smart paragraph grouping** (AssemblyAI, single-speaker) — uses an LLM to regroup sentences into semantic paragraphs while preserving exact words and timestamps.
 - **Export** — download as Plain Text (`.txt`), Word (`.docx`), PDF (`.pdf`), Markdown (`.md`), or SubRip subtitles (`.srt`), individually or all at once as a ZIP. AI summaries can be downloaded as separate files, and a one-click "Download Everything" archive bundles every format plus summaries.
 - **Languages** — English, Spanish, Italian.

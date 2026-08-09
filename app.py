@@ -91,12 +91,8 @@ UPLOAD_TYPES = [
 
 
 def _init():
-    for key, default in [
-        ("transcriptions", []),
-        ("speaker_map", {}),
-    ]:
-        if key not in st.session_state:
-            st.session_state[key] = default
+    if "transcriptions" not in st.session_state:
+        st.session_state.transcriptions = []
 
 
 def _fmt_time(seconds: float) -> str:
@@ -107,24 +103,24 @@ def _fmt_time(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:02d}"
 
 
-def _all_speakers(transcriptions: List[Dict]) -> List[str]:
-    seen: set = set()
-    result = []
-    for t in transcriptions:
-        for seg in t.get("segments", []):
-            sp = seg.get("speaker", "Speaker 1")
-            if sp not in seen:
-                seen.add(sp)
-                result.append(sp)
-    return result
+def _track_speakers(transcription: Dict) -> List[str]:
+    """Ordered, unique speaker IDs within a single transcription (track)."""
+    seen: List[str] = []
+    for seg in transcription.get("segments", []):
+        sp = seg.get("speaker", "Speaker 1")
+        if sp not in seen:
+            seen.append(sp)
+    return seen
 
 
-def _apply_map(transcriptions: List[Dict], speaker_map: Dict[str, str]) -> List[Dict]:
+def _apply_map(transcriptions: List[Dict]) -> List[Dict]:
+    """Return copies with each track's own speaker_map applied to its segments."""
     out = []
     for t in transcriptions:
+        smap = t.get("speaker_map", {})
         tc = dict(t)
         tc["segments"] = [
-            {**s, "speaker": speaker_map.get(s["speaker"], s["speaker"])}
+            {**s, "speaker": smap.get(s["speaker"], s["speaker"])}
             for s in t.get("segments", [])
         ]
         out.append(tc)
@@ -155,7 +151,7 @@ def _transcribe(
         )
 
 
-def _export(transcription: Dict, speaker_map: Dict, fmt: str) -> bytes:
+def _export(transcription: Dict, fmt: str) -> bytes:
     from exporters.export_utils import (
         export_txt, export_docx, export_pdf, export_md, export_srt,
     )
@@ -166,7 +162,7 @@ def _export(transcription: Dict, speaker_map: Dict, fmt: str) -> bytes:
         "md": export_md,
         "srt": export_srt,
     }[fmt]
-    return fn(transcription, speaker_map)
+    return fn(transcription, transcription.get("speaker_map", {}))
 
 
 def _export_summary(transcription: Dict, fmt: str) -> bytes:
@@ -182,19 +178,19 @@ def _export_summary(transcription: Dict, fmt: str) -> bytes:
     return fn(transcription)
 
 
-def _build_zip(transcriptions: List[Dict], speaker_map: Dict, fmt: str) -> bytes:
+def _build_zip(transcriptions: List[Dict], fmt: str) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for t in transcriptions:
             if t.get("error"):
                 continue
-            data = _export(t, speaker_map, fmt)
+            data = _export(t, fmt)
             zf.writestr(f"{Path(t['filename']).stem}.{fmt}", data)
     buf.seek(0)
     return buf.read()
 
 
-def _build_full_zip(transcriptions: List[Dict], speaker_map: Dict) -> bytes:
+def _build_full_zip(transcriptions: List[Dict]) -> bytes:
     """ZIP with every format for every file, plus a summary file per format
     when a summary is available."""
     buf = io.BytesIO()
@@ -204,7 +200,7 @@ def _build_full_zip(transcriptions: List[Dict], speaker_map: Dict) -> bytes:
                 continue
             stem = Path(t["filename"]).stem
             for fmt in FORMATS:
-                zf.writestr(f"{stem}/{stem}.{fmt}", _export(t, speaker_map, fmt))
+                zf.writestr(f"{stem}/{stem}.{fmt}", _export(t, fmt))
                 if t.get("summary") and fmt in SUMMARY_FORMATS:
                     zf.writestr(f"{stem}/{stem}_summary.{fmt}", _export_summary(t, fmt))
     buf.seek(0)
@@ -230,7 +226,6 @@ def render_sidebar():
 
         whisper_model = None
         api_key = None
-        speakers_expected = None
         generate_summary = False
         smart_paragraphs = False
 
@@ -259,20 +254,10 @@ def render_sidebar():
             elif env_key and api_key == env_key:
                 st.caption("🔒 Key loaded from .env")
 
-            n = st.number_input(
-                "Expected number of speakers",
-                min_value=0,
-                max_value=20,
-                value=0,
-                step=1,
-                help="Set to 0 for automatic detection. Providing the correct count improves diarization accuracy.",
-            )
-            speakers_expected = int(n) if n > 0 else None
-
             generate_summary = st.checkbox(
                 "Generate AI summary after transcription",
                 value=False,
-                help="Uses AssemblyAI LLM Gateway (EU) to produce a 3-5 bullet-point summary of each transcript.",
+                help="Uses AssemblyAI LLM Gateway (EU) to produce a 3-5 paragraph summary of each transcript.",
             )
 
             smart_paragraphs = st.checkbox(
@@ -292,14 +277,14 @@ def render_sidebar():
             "For video, the audio track is transcribed."
         )
 
-    return engine, language, whisper_model, api_key, speakers_expected, generate_summary, smart_paragraphs
+    return engine, language, whisper_model, api_key, generate_summary, smart_paragraphs
 
 
 def main():
     _init()
 
     (engine, language, whisper_model, api_key,
-     speakers_expected, generate_summary, smart_paragraphs) = render_sidebar()
+     generate_summary, smart_paragraphs) = render_sidebar()
 
     st.markdown('<div class="main-title">🎙️ Audio Transcription</div>', unsafe_allow_html=True)
     st.markdown(
@@ -323,13 +308,34 @@ def main():
     # ── 2. Transcribe
     st.markdown('<div class="step-header">2 · Transcribe</div>', unsafe_allow_html=True)
 
+    # Per-file expected speaker count (AssemblyAI only). Each track can have a
+    # different number of speakers — 0 means auto-detect for that file.
+    per_file_speakers: Dict[int, Optional[int]] = {}
+    if uploaded_files and engine == "AssemblyAI (Commercial)":
+        st.caption(
+            "Expected speakers per file (0 = auto-detect). Set each track "
+            "independently — they can have different speaker counts."
+        )
+        ncols = min(len(uploaded_files), 4)
+        scols = st.columns(ncols)
+        for i, f in enumerate(uploaded_files):
+            with scols[i % ncols]:
+                n = st.number_input(
+                    f.name,
+                    min_value=0,
+                    max_value=20,
+                    value=0,
+                    step=1,
+                    key=f"spkcount_{i}",
+                )
+                per_file_speakers[i] = int(n) if n > 0 else None
+
     ready = bool(uploaded_files) and (
         engine == "Whisper (Free, Local)" or bool(api_key)
     )
 
     if st.button("🎙️ Transcribe All Files", disabled=not ready, type="primary"):
         st.session_state.transcriptions = []
-        st.session_state.speaker_map = {}
 
         progress = st.progress(0)
         status = st.empty()
@@ -344,7 +350,7 @@ def main():
                     language=language,
                     whisper_model=whisper_model,
                     api_key=api_key,
-                    speakers_expected=speakers_expected,
+                    speakers_expected=per_file_speakers.get(i),
                     generate_summary=generate_summary,
                     smart_paragraphs=smart_paragraphs,
                 )
@@ -358,12 +364,12 @@ def main():
                     "summary": None,
                     "error": str(exc),
                 }
+            # Each track gets its own speaker map so labels never bleed across files.
+            result["speaker_map"] = {s: s for s in _track_speakers(result)}
             st.session_state.transcriptions.append(result)
             progress.progress((i + 1) / len(uploaded_files))
 
         status.success(f"✅ Done — {len(uploaded_files)} file(s) transcribed.")
-        speakers = _all_speakers(st.session_state.transcriptions)
-        st.session_state.speaker_map = {s: s for s in speakers}
         time.sleep(0.4)
         st.rerun()
 
@@ -379,7 +385,7 @@ def main():
     st.markdown("---")
     st.markdown('<div class="step-header">3 · Review Transcriptions</div>', unsafe_allow_html=True)
 
-    displayed = _apply_map(st.session_state.transcriptions, st.session_state.speaker_map)
+    displayed = _apply_map(st.session_state.transcriptions)
 
     for t in displayed:
         icon = "✅" if not t.get("error") else "❌"
@@ -410,32 +416,42 @@ def main():
     st.markdown("---")
     st.markdown('<div class="step-header">4 · Tag Speaker Names</div>', unsafe_allow_html=True)
 
-    speakers = _all_speakers(st.session_state.transcriptions)
-    if not speakers:
+    taggable = [
+        (i, t) for i, t in enumerate(st.session_state.transcriptions)
+        if not t.get("error") and _track_speakers(t)
+    ]
+    if not taggable:
         st.caption("No speakers detected.")
     else:
-        if engine == "Whisper (Free, Local)" and speakers == ["Speaker 1"]:
-            st.info(
-                "Whisper produced a single speaker track. "
-                "Use AssemblyAI for automatic multi-speaker detection.",
-                icon="ℹ️",
-            )
-
-        st.caption("Map detected speaker IDs to real names, then click Apply.")
-        ncols = min(len(speakers), 4)
-        cols = st.columns(ncols)
-        new_map: Dict[str, str] = {}
-        for i, sp in enumerate(speakers):
-            with cols[i % ncols]:
-                name = st.text_input(
-                    sp,
-                    value=st.session_state.speaker_map.get(sp, sp),
-                    key=f"spk_{sp}",
+        st.caption("Rename speakers separately for each file, then click Apply.")
+        apply = st.button("✅ Apply Speaker Names")
+        pending: Dict[int, Dict[str, str]] = {}
+        for i, t in taggable:
+            speakers = _track_speakers(t)
+            st.markdown(f"**🎧 {t['filename']}**")
+            if engine == "Whisper (Free, Local)" and speakers == ["Speaker 1"]:
+                st.info(
+                    "Whisper produced a single speaker track. "
+                    "Use AssemblyAI for automatic multi-speaker detection.",
+                    icon="ℹ️",
                 )
-                new_map[sp] = name.strip() or sp
+            smap = t.get("speaker_map", {})
+            ncols = min(len(speakers), 4)
+            cols = st.columns(ncols)
+            per: Dict[str, str] = {}
+            for j, sp in enumerate(speakers):
+                with cols[j % ncols]:
+                    name = st.text_input(
+                        sp,
+                        value=smap.get(sp, sp),
+                        key=f"spk_{i}_{sp}",
+                    )
+                    per[sp] = name.strip() or sp
+            pending[i] = per
 
-        if st.button("✅ Apply Speaker Names"):
-            st.session_state.speaker_map = new_map
+        if apply:
+            for idx, per_map in pending.items():
+                st.session_state.transcriptions[idx]["speaker_map"] = per_map
             st.rerun()
 
     # ── 5. Export
@@ -460,7 +476,7 @@ def main():
         with cols[i % min(len(valid), 4)]:
             stem = Path(t["filename"]).stem
             try:
-                data = _export(t, st.session_state.speaker_map, fmt)
+                data = _export(t, fmt)
                 st.download_button(
                     label=f"⬇️ Download {t['filename']}",
                     data=data,
@@ -487,7 +503,7 @@ def main():
     if len(valid) > 1:
         st.markdown(" ")
         try:
-            zip_data = _build_zip(valid, st.session_state.speaker_map, fmt)
+            zip_data = _build_zip(valid, fmt)
             st.download_button(
                 label="⬇️ Download All as ZIP",
                 data=zip_data,
@@ -501,7 +517,7 @@ def main():
     st.markdown(" ")
     st.caption("Get everything in one archive — all formats (txt, docx, pdf, md, srt) plus summaries where available.")
     try:
-        full_zip = _build_full_zip(valid, st.session_state.speaker_map)
+        full_zip = _build_full_zip(valid)
         st.download_button(
             label="📦 Download Everything (all formats + summaries)",
             data=full_zip,
