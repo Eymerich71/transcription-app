@@ -6,7 +6,7 @@ A [Streamlit](https://streamlit.io/) web app for transcribing audio files, taggi
 
 - **Two transcription engines**
   - **Whisper (free, local)** — runs entirely on your machine, no API key, fully private. Model sizes from `tiny` to `large`.
-  - **AssemblyAI (commercial)** — EU region, Universal-3 Pro model, automatic speaker diarization.
+  - **AssemblyAI (commercial)** — EU region, Universal-3.5 Pro model, automatic speaker diarization.
 - **Multi-file upload** — transcribe a whole batch in one run.
 - **Speaker diarization** (AssemblyAI) — automatically detects who spoke when; optionally provide the expected speaker count to improve accuracy.
 - **Speaker tagging** — map detected speaker IDs to real names and apply across all transcripts.

@@ -222,7 +222,7 @@ def render_sidebar():
             ["Whisper (Free, Local)", "AssemblyAI (Commercial)"],
             help=(
                 "**Whisper** runs entirely on your machine — free, private, no API key needed. "
-                "**AssemblyAI** uses the EU region (Universal-3 Pro model) with automatic speaker diarization."
+                "**AssemblyAI** uses the EU region (Universal-3.5 Pro model) with automatic speaker diarization."
             ),
         )
 

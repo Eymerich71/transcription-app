@@ -29,7 +29,7 @@ def transcribe(
     generate_summary: bool = False,
     smart_paragraphs: bool = False,
 ) -> Dict[str, Any]:
-    """Transcribe audio bytes using AssemblyAI (EU region, Universal-3 Pro)."""
+    """Transcribe audio bytes using AssemblyAI (EU region, Universal-3.5 Pro)."""
     import assemblyai as aai
 
     if not api_key:
@@ -48,7 +48,7 @@ def transcribe(
     try:
         extra = {"speakers_expected": speakers_expected} if speakers_expected else {}
         config = aai.TranscriptionConfig(
-            speech_models=["universal-3-pro", "universal-2"],
+            speech_models=["universal-3-5-pro", "universal-2"],
             language_code=lang_code,
             speaker_labels=True,
             punctuate=True,
@@ -70,7 +70,7 @@ def transcribe(
     return {
         "filename": filename,
         "language": language,
-        "engine": "AssemblyAI (Universal-3 Pro)",
+        "engine": "AssemblyAI (Universal-3.5 Pro)",
         "segments": segments,
         "full_text": full_text,
         "summary": summary,
