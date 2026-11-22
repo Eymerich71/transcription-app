@@ -2,6 +2,21 @@
 
 A [Streamlit](https://streamlit.io/) web app for transcribing audio files, tagging speakers, and exporting clean transcripts. Choose between **free local Whisper** or **commercial AssemblyAI** (with automatic speaker diarization and optional AI summaries).
 
+## Two ways to use it
+
+| | 🌐 **Online** | 💻 **On your own computer** |
+|---|---|---|
+| Setup | None: open the link | Install Python, then follow [Getting started](#getting-started) |
+| Link / download | _Online link coming soon_ | Download this repository (**Code → Download ZIP**) or `git clone` it |
+| Engines | AssemblyAI (paste your own key) | AssemblyAI **and free Whisper** (no key needed) |
+| Where your audio goes | Temporarily to an EU cloud bucket (deleted after transcription), then to AssemblyAI (EU) | Stays on your computer with Whisper; to AssemblyAI (EU) if you choose it |
+| Best for | Quick use, any device | Sensitive recordings, no AssemblyAI account, heavy use |
+
+Both use the same code: the online version is this app hosted on Google Cloud
+([deploy/README.md](deploy/README.md)). The **original version**, from before
+online hosting was added, is kept unchanged on the
+[`local-version`](../../tree/local-version) branch.
+
 ## Features
 
 - **Two transcription engines**
