@@ -180,3 +180,27 @@ def test_video_upload_is_converted_to_compact_audio(monkeypatch, tmp_path):
     data = up.read()
     assert data[:3] == b"ID3" or data[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")  # MP3
     assert len(data) < video.stat().st_size
+
+
+def test_public_mode_whisper_off_and_users_paste_key(monkeypatch):
+    monkeypatch.setenv("GCS_UPLOAD_BUCKET", "my-bucket")
+    monkeypatch.setenv("WHISPER_ENABLED", "false")
+
+    class FakeClient:
+        def list_blobs(self, bucket, prefix):
+            return []
+
+    monkeypatch.setattr(cloud_storage, "_client", lambda: FakeClient())
+    monkeypatch.setattr(
+        cloud_storage, "_default_signer",
+        lambda: ("app@proj.iam.gserviceaccount.com", _sign),
+    )
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    assert not at.exception, at.exception
+    assert at.sidebar.selectbox[0].options == ["AssemblyAI (Commercial)"]
+    key_box = [t for t in at.sidebar.text_input if "AssemblyAI API key" in t.label]
+    assert len(key_box) == 1 and key_box[0].value == ""
+    assert any("never saved" in c.value for c in at.sidebar.caption)
+    key_box[0].input("  user-key-123  ").run()
+    assert not at.exception
+    assert not any("Paste your AssemblyAI API key" in w.value for w in at.warning)

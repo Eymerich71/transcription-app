@@ -114,6 +114,12 @@ def _allowed_whisper_models() -> List[str]:
     return [m for m in WHISPER_MODELS if m in wanted] or WHISPER_MODELS
 
 
+def _whisper_enabled() -> bool:
+    """WHISPER_ENABLED=false hides Whisper, e.g. on a public deployment where
+    the host doesn't want to pay for everyone's transcription compute."""
+    return _env("WHISPER_ENABLED").lower() not in ("0", "false", "no", "off")
+
+
 def _password_gate() -> bool:
     """If APP_PASSWORD is set, ask for it once per browser session."""
     password = _env("APP_PASSWORD")
@@ -256,12 +262,16 @@ def render_sidebar():
             "runs on this app's own server (no third-party service)"
             if hosted else "runs entirely on your machine"
         )
+        engines = ["AssemblyAI (Commercial)"]
+        if _whisper_enabled():
+            engines.insert(0, "Whisper (Free, Local)")
         engine = st.selectbox(
             "Engine",
-            ["Whisper (Free, Local)", "AssemblyAI (Commercial)"],
+            engines,
             help=(
-                f"**Whisper** {whisper_where} — free, no API key needed. "
-                "**AssemblyAI** uses the EU region (Universal-3.5 Pro model) with automatic speaker diarization."
+                (f"**Whisper** {whisper_where} — free, no API key needed. "
+                 if _whisper_enabled() else "")
+                + "**AssemblyAI** uses the EU region (Universal-3.5 Pro model) with automatic speaker diarization."
             ),
         )
 
@@ -296,13 +306,26 @@ def render_sidebar():
                 use_own_key = st.checkbox("Use a different key", value=False)
             if not env_key or use_own_key:
                 api_key = st.text_input(
-                    "API Key",
+                    "Your AssemblyAI API key",
                     type="password",
                     placeholder="xxxxxxxxxxxxxxxxxxxxxxxx",
-                    help="Set ASSEMBLYAI_API_KEY in .env to skip this. Get a key at assemblyai.com.",
-                )
+                    help=(
+                        "Find it in your AssemblyAI dashboard (assemblyai.com → API Keys). "
+                        "Usage is billed to your own AssemblyAI account."
+                        if hosted else
+                        "Set ASSEMBLYAI_API_KEY in .env to skip this. Get a key at assemblyai.com."
+                    ),
+                ).strip()
+                if hosted:
+                    st.caption(
+                        "🔐 Your key is used only for this browser session. It is never "
+                        "saved, and you'll need to paste it again after reloading the page."
+                    )
                 if not api_key:
-                    st.warning("Enter your AssemblyAI API key to continue.")
+                    st.warning(
+                        "Paste your AssemblyAI API key to continue. "
+                        "Don't have one? Sign up free at [assemblyai.com](https://www.assemblyai.com/)."
+                    )
             else:
                 api_key = env_key
 
@@ -350,6 +373,10 @@ def main():
     st.markdown('<div class="step-header">1 · Upload Audio Files</div>', unsafe_allow_html=True)
     if cloud_storage.enabled():
         # Hosted: the browser uploads straight to Cloud Storage (no 32 MB cap).
+        st.caption(
+            "Uploads are stored temporarily in a private cloud bucket in the EU and "
+            "deleted after transcription (at the latest after 24 hours)."
+        )
         uploaded_files = cloud_storage.render_uploader(UPLOAD_TYPES)
     else:
         uploaded_files = st.file_uploader(

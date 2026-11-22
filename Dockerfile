@@ -40,4 +40,4 @@ USER appuser
 # Cloud Run sends traffic to $PORT (8080 by default).
 ENV PORT=8080
 EXPOSE 8080
-CMD ["sh", "-c", "exec streamlit run app.py --server.port=${PORT} --server.address=0.0.0.0 --server.headless=true --server.maxUploadSize=32 --browser.gatherUsageStats=false"]
+CMD ["sh", "-c", "exec streamlit run app.py --server.port=${PORT} --server.address=0.0.0.0 --server.headless=true --server.maxUploadSize=32 --browser.gatherUsageStats=false --client.toolbarMode=viewer"]
