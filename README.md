@@ -83,6 +83,25 @@ The app opens in your browser. Then:
 | Smart paragraphs | ❌ | ✅ (single-speaker) |
 | Speed | Depends on model size & hardware | Cloud-processed |
 
+## Hosting online (Google Cloud Run)
+
+The app can run as a password-protected website on Google Cloud Run in Madrid
+(`europe-southwest1`). There, uploads go straight from the browser to a private
+Cloud Storage bucket, so there's no 32 MB file limit. Recordings are deleted
+after transcription. Step-by-step instructions: **[deploy/README.md](deploy/README.md)**.
+
+Environment variables used when hosted (all optional locally):
+
+| Variable | Purpose |
+|---|---|
+| `APP_PASSWORD` | Shows a password screen before the app |
+| `GCS_UPLOAD_BUCKET` | Turns on direct uploads to this Cloud Storage bucket |
+| `MAX_UPLOAD_MB` | Per-file upload cap in cloud mode (default 1024) |
+| `WHISPER_MODELS_ALLOWED` | Limits Whisper sizes, e.g. `tiny,base,small` |
+
+When `ASSEMBLYAI_API_KEY` is set (in `.env` or on the server), the app uses it
+without showing it in the page. Tick "Use a different key" to paste another one.
+
 ## Notes
 
 - The AI summary and smart-paragraph features use the AssemblyAI **LLM Gateway**, which is a separate product from transcription. If you see an `HTTP 401` on summaries, enable LLM Gateway and set up billing in your AssemblyAI dashboard.

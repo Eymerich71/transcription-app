@@ -1,0 +1,16 @@
+# Files NOT uploaded to Cloud Build by `gcloud run deploy --source .`
+# Keep secrets (.env) out of the cloud build.
+.gcloudignore
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+__pycache__/
+*.py[cod]
+*.pt
+tests/
+.DS_Store
+Thumbs.db

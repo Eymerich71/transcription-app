@@ -1,3 +1,4 @@
+import hmac
 import io
 import os
 import time
@@ -9,6 +10,8 @@ from dotenv import load_dotenv
 import streamlit as st
 
 load_dotenv()  # reads .env if present
+
+import cloud_storage  # noqa: E402  (direct-to-bucket uploads when hosted)
 
 st.set_page_config(
     page_title="Audio Transcription",
@@ -93,6 +96,41 @@ UPLOAD_TYPES = [
 def _init():
     if "transcriptions" not in st.session_state:
         st.session_state.transcriptions = []
+
+
+def _env(name: str) -> str:
+    """Environment value with stray whitespace/newlines removed (secrets
+    created from a file often end with a newline)."""
+    return os.environ.get(name, "").strip()
+
+
+def _allowed_whisper_models() -> List[str]:
+    """WHISPER_MODELS_ALLOWED (e.g. "tiny,base,small") limits the model list,
+    so a hosted instance isn't asked to load a model larger than its memory."""
+    raw = _env("WHISPER_MODELS_ALLOWED")
+    if not raw:
+        return WHISPER_MODELS
+    wanted = {m.strip() for m in raw.replace(" ", ",").split(",") if m.strip()}
+    return [m for m in WHISPER_MODELS if m in wanted] or WHISPER_MODELS
+
+
+def _password_gate() -> bool:
+    """If APP_PASSWORD is set, ask for it once per browser session."""
+    password = _env("APP_PASSWORD")
+    if not password or st.session_state.get("authenticated"):
+        return True
+
+    st.markdown('<div class="main-title">🎙️ Audio Transcription</div>', unsafe_allow_html=True)
+    with st.form("login"):
+        entered = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Enter", type="primary")
+    if submitted:
+        if hmac.compare_digest(entered.encode("utf-8"), password.encode("utf-8")):
+            st.session_state.authenticated = True
+            st.rerun()
+        time.sleep(1.5)  # slow down guessing
+        st.error("Wrong password.")
+    return False
 
 
 def _fmt_time(seconds: float) -> str:
@@ -208,16 +246,21 @@ def _build_full_zip(transcriptions: List[Dict]) -> bytes:
 
 
 def render_sidebar():
-    env_key = os.environ.get("ASSEMBLYAI_API_KEY", "")
+    env_key = _env("ASSEMBLYAI_API_KEY")
+    hosted = cloud_storage.enabled()
 
     with st.sidebar:
         st.header("⚙️ Settings")
 
+        whisper_where = (
+            "runs on this app's own server (no third-party service)"
+            if hosted else "runs entirely on your machine"
+        )
         engine = st.selectbox(
             "Engine",
             ["Whisper (Free, Local)", "AssemblyAI (Commercial)"],
             help=(
-                "**Whisper** runs entirely on your machine — free, private, no API key needed. "
+                f"**Whisper** {whisper_where} — free, no API key needed. "
                 "**AssemblyAI** uses the EU region (Universal-3.5 Pro model) with automatic speaker diarization."
             ),
         )
@@ -232,7 +275,10 @@ def render_sidebar():
         if engine == "Whisper (Free, Local)":
             st.markdown("---")
             st.subheader("Whisper")
-            whisper_model = st.selectbox("Model size", WHISPER_MODELS, index=1)
+            models = _allowed_whisper_models()
+            whisper_model = st.selectbox(
+                "Model size", models, index=models.index("base") if "base" in models else 0,
+            )
             st.caption(WHISPER_MODEL_INFO[whisper_model])
             st.info(
                 "Speaker diarization is not available with local Whisper. "
@@ -242,17 +288,23 @@ def render_sidebar():
         else:
             st.markdown("---")
             st.subheader("AssemblyAI")
-            api_key = st.text_input(
-                "API Key",
-                value=env_key,
-                type="password",
-                placeholder="xxxxxxxxxxxxxxxxxxxxxxxx",
-                help="Pre-filled from ASSEMBLYAI_API_KEY in your .env file. Get a key at assemblyai.com.",
-            )
-            if not api_key:
-                st.warning("Enter your AssemblyAI API key to continue.")
-            elif env_key and api_key == env_key:
-                st.caption("🔒 Key loaded from .env")
+            # A configured key is used server-side and never sent to the
+            # browser (a pre-filled password box would expose it in the page).
+            use_own_key = False
+            if env_key:
+                st.caption("🔒 Using the AssemblyAI key from your .env / server settings.")
+                use_own_key = st.checkbox("Use a different key", value=False)
+            if not env_key or use_own_key:
+                api_key = st.text_input(
+                    "API Key",
+                    type="password",
+                    placeholder="xxxxxxxxxxxxxxxxxxxxxxxx",
+                    help="Set ASSEMBLYAI_API_KEY in .env to skip this. Get a key at assemblyai.com.",
+                )
+                if not api_key:
+                    st.warning("Enter your AssemblyAI API key to continue.")
+            else:
+                api_key = env_key
 
             generate_summary = st.checkbox(
                 "Generate AI summary after transcription",
@@ -282,6 +334,8 @@ def render_sidebar():
 
 def main():
     _init()
+    if not _password_gate():
+        return
 
     (engine, language, whisper_model, api_key,
      generate_summary, smart_paragraphs) = render_sidebar()
@@ -294,12 +348,16 @@ def main():
 
     # ── 1. Upload
     st.markdown('<div class="step-header">1 · Upload Audio Files</div>', unsafe_allow_html=True)
-    uploaded_files = st.file_uploader(
-        "Upload",
-        type=UPLOAD_TYPES,
-        accept_multiple_files=True,
-        label_visibility="collapsed",
-    )
+    if cloud_storage.enabled():
+        # Hosted: the browser uploads straight to Cloud Storage (no 32 MB cap).
+        uploaded_files = cloud_storage.render_uploader(UPLOAD_TYPES)
+    else:
+        uploaded_files = st.file_uploader(
+            "Upload",
+            type=UPLOAD_TYPES,
+            accept_multiple_files=True,
+            label_visibility="collapsed",
+        )
 
     if uploaded_files:
         names = ", ".join(f.name for f in uploaded_files)
@@ -367,6 +425,11 @@ def main():
             # Each track gets its own speaker map so labels never bleed across files.
             result["speaker_map"] = {s: s for s in _track_speakers(result)}
             st.session_state.transcriptions.append(result)
+            # Hosted: remove the recording from cloud storage once it's done.
+            # Failed files stay so they can be retried (the bucket's lifecycle
+            # rule deletes leftovers after a day).
+            if not result.get("error") and hasattr(f, "delete"):
+                f.delete()
             progress.progress((i + 1) / len(uploaded_files))
 
         status.success(f"✅ Done — {len(uploaded_files)} file(s) transcribed.")
