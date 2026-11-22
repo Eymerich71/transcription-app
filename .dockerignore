@@ -1,0 +1,14 @@
+# Never ship secrets or local clutter into the image
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+.vscode
+.idea
+__pycache__
+*.py[cod]
+*.pt
+tests
+.DS_Store
+Thumbs.db

@@ -2,6 +2,21 @@
 
 A [Streamlit](https://streamlit.io/) web app for transcribing audio files, tagging speakers, and exporting clean transcripts. Choose between **free local Whisper** or **commercial AssemblyAI** (with automatic speaker diarization and optional AI summaries).
 
+## Two ways to use it
+
+| | 🌐 **Online** | 💻 **On your own computer** |
+|---|---|---|
+| Setup | None: open the link | Install Python, then follow [Getting started](#getting-started) |
+| Link / download | _Online link coming soon_ | Download this repository (**Code → Download ZIP**) or `git clone` it |
+| Engines | AssemblyAI (paste your own key) | AssemblyAI **and free Whisper** (no key needed) |
+| Where your audio goes | Temporarily to an EU cloud bucket (deleted after transcription), then to AssemblyAI (EU) | Stays on your computer with Whisper; to AssemblyAI (EU) if you choose it |
+| Best for | Quick use, any device | Sensitive recordings, no AssemblyAI account, heavy use |
+
+Both use the same code: the online version is this app hosted on Google Cloud
+([deploy/README.md](deploy/README.md)). The **original version**, from before
+online hosting was added, is kept unchanged on the
+[`local-version`](../../tree/local-version) branch.
+
 ## Features
 
 - **Two transcription engines**
@@ -82,6 +97,26 @@ The app opens in your browser. Then:
 | AI summary | ❌ | ✅ |
 | Smart paragraphs | ❌ | ✅ (single-speaker) |
 | Speed | Depends on model size & hardware | Cloud-processed |
+
+## Hosting online (Google Cloud Run)
+
+The app can run as a public website on Google Cloud Run in Madrid
+(`europe-southwest1`), where each user pastes their own AssemblyAI key. There, uploads go straight from the browser to a private
+Cloud Storage bucket, so there's no 32 MB file limit. Recordings are deleted
+after transcription. Step-by-step instructions: **[deploy/README.md](deploy/README.md)**.
+
+Environment variables used when hosted (all optional locally):
+
+| Variable | Purpose |
+|---|---|
+| `APP_PASSWORD` | Shows a password screen before the app |
+| `GCS_UPLOAD_BUCKET` | Turns on direct uploads to this Cloud Storage bucket |
+| `MAX_UPLOAD_MB` | Per-file upload cap in cloud mode (default 1024) |
+| `WHISPER_MODELS_ALLOWED` | Limits Whisper sizes, e.g. `tiny,base,small` |
+| `WHISPER_ENABLED` | Set to `false` to offer AssemblyAI only (public deployment default) |
+
+When `ASSEMBLYAI_API_KEY` is set (in `.env` or on the server), the app uses it
+without showing it in the page. Tick "Use a different key" to paste another one.
 
 ## Notes
 
